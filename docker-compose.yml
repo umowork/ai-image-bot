@@ -1,0 +1,27 @@
+version: "3.8"
+
+services:
+  bot:
+    build: .
+    env_file: .env
+    depends_on:
+      - redis
+    volumes:
+      - ./bot.db:/app/bot.db
+    restart: unless-stopped
+
+  webhook:
+    build: .
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    volumes:
+      - ./bot.db:/app/bot.db
+    command: ["python", "run_webhook.py"]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
