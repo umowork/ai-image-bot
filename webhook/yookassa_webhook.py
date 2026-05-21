@@ -10,7 +10,16 @@ import json
 import logging
 import os
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Security, Depends
+from fastapi.security import APIKeyHeader
+import os
+
+_api_key_header = APIKeyHeader(name='X-API-Key', auto_error=False)
+
+def require_api_key(api_key: str | None = Security(_api_key_header)):
+    expected = os.getenv('API_KEY')
+    if expected and api_key != expected:
+        raise HTTPException(status_code=401, detail='Invalid API key')
 from fastapi.responses import JSONResponse
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
