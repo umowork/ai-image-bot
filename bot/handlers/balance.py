@@ -83,11 +83,10 @@ def register_balance(
                 f"<i>После оплаты баланс обновится автоматически "
                 f"(через webhook).</i>"
             )
-        except Exception as e:
-            logger.error("payment creation failed: %s", e)
+        except Exception:
+            logger.error("payment creation failed", exc_info=True)
             await callback.message.answer(
-                f"❌ Ошибка создания платежа: {e}\n"
-                f"Попробуй позже или свяжись с поддержкой."
+                "❌ Не удалось создать платёж. Попробуй позже или свяжись с поддержкой."
             )
 
         await callback.answer()

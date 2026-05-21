@@ -4,27 +4,29 @@ YooKassa webhook handler (FastAPI).
 from __future__ import annotations
 
 import base64
-import hashlib
 import hmac
 import json
 import logging
 import os
 
-from fastapi import FastAPI, HTTPException, Request, Security, Depends
-from fastapi.security import APIKeyHeader
-import os
-
-_api_key_header = APIKeyHeader(name='X-API-Key', auto_error=False)
-
-def require_api_key(api_key: str | None = Security(_api_key_header)):
-    expected = os.getenv('API_KEY')
-    if expected and api_key != expected:
-        raise HTTPException(status_code=401, detail='Invalid API key')
+from fastapi import FastAPI, HTTPException, Request, Security
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
+
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_api_key(api_key: str | None = Security(_api_key_header)):
+    expected = os.getenv("API_KEY")
+    if expected and api_key != expected:
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+from models import Database
+from services.payment_service import PaymentService
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -34,9 +36,6 @@ def _rate_limit_exceeded_handler(request, exc):
         status_code=429,
         content={"detail": "Rate limit exceeded. Please try again later."},
     )
-
-from models import Database
-from services.payment_service import PaymentService
 
 logger = logging.getLogger(__name__)
 
@@ -59,25 +58,26 @@ def create_webhook_app(
         # YooKassa sends: Authorization: Basic <base64(shop_id:secret_key)>
         # We verify against our configured secret
         webhook_secret = os.getenv("YOOKASSA_WEBHOOK_SECRET", "")
-        if webhook_secret:
-            auth_header = request.headers.get("Authorization", "")
-            if not auth_header.startswith("Basic "):
-                logger.warning("missing or invalid Authorization header")
-                raise HTTPException(status_code=401, detail="Unauthorized")
+        if not webhook_secret:
+            logger.error("YOOKASSA_WEBHOOK_SECRET is not configured — rejecting all webhook requests")
+            raise HTTPException(status_code=503, detail="Service unavailable: webhook not configured")
 
-            try:
-                encoded = auth_header.split(" ", 1)[1]
-                decoded = base64.b64decode(encoded).decode("utf-8")
-                # Format: shop_id:secret_key
-                _, provided_secret = decoded.split(":", 1)
-                if not hmac.compare_digest(provided_secret, webhook_secret):
-                    logger.warning("webhook signature mismatch")
-                    raise HTTPException(status_code=401, detail="Unauthorized")
-            except (ValueError, IndexError) as e:
-                logger.warning("failed to parse Authorization header: %s", e)
-                raise HTTPException(status_code=401, detail="Unauthorized") from e
-        else:
-            logger.warning("YOOKASSA_WEBHOOK_SECRET not set — skipping signature verification")
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Basic "):
+            logger.warning("missing or invalid Authorization header")
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        try:
+            encoded = auth_header.split(" ", 1)[1]
+            decoded = base64.b64decode(encoded).decode("utf-8")
+            # Format: shop_id:secret_key
+            _, provided_secret = decoded.split(":", 1)
+            if not hmac.compare_digest(provided_secret, webhook_secret):
+                logger.warning("webhook signature mismatch")
+                raise HTTPException(status_code=401, detail="Unauthorized")
+        except (ValueError, IndexError) as e:
+            logger.warning("failed to parse Authorization header: %s", e)
+            raise HTTPException(status_code=401, detail="Unauthorized") from e
 
         try:
             data = json.loads(body)
@@ -132,8 +132,9 @@ def create_webhook_app(
                 from sqlalchemy import text
                 await session.execute(text("SELECT 1"))
             checks["database"] = "ok"
-        except Exception as e:
-            checks["database"] = f"error: {e}"
+        except Exception:
+            logger.error("health check: database connection failed", exc_info=True)
+            checks["database"] = "error"
             checks["status"] = "degraded"
         return checks
 

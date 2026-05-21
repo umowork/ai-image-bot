@@ -273,8 +273,8 @@ def register_generate(
                         f"{free_tag}"
                     ),
                 )
-            except Exception as e:
+            except Exception:
                 if cost > 0:
                     await db.add_balance(user.id, cost)  # refund
-                await progress.edit_text(f"❌ Ошибка генерации: {e}")
-                logger.error("image generation failed: %s", e)
+                logger.error("image generation failed", exc_info=True)
+                await progress.edit_text("❌ Произошла ошибка при генерации. Попробуй позже.")
