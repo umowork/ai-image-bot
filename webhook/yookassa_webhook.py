@@ -11,6 +11,20 @@ import logging
 import os
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
+
+
+def _rate_limit_exceeded_handler(request, exc):
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later."},
+    )
 
 from models import Database
 from services.payment_service import PaymentService
@@ -23,8 +37,12 @@ def create_webhook_app(
     payment_service: PaymentService,
 ) -> FastAPI:
     app = FastAPI(title="YooKassa Webhook")
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    app.add_middleware(SlowAPIMiddleware)
 
     @app.post("/webhook/yookassa")
+    @limiter.limit("30/minute")
     async def yookassa_webhook(request: Request):
         body = await request.body()
 
@@ -99,6 +117,15 @@ def create_webhook_app(
 
     @app.get("/health")
     async def health():
-        return {"status": "ok", "service": "yookassa-webhook"}
+        checks = {"status": "ok", "service": "yookassa-webhook"}
+        try:
+            async with db.session_factory() as session:
+                from sqlalchemy import text
+                await session.execute(text("SELECT 1"))
+            checks["database"] = "ok"
+        except Exception as e:
+            checks["database"] = f"error: {e}"
+            checks["status"] = "degraded"
+        return checks
 
     return app
