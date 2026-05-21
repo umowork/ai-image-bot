@@ -8,4 +8,7 @@ COPY . .
 # Add _shared to Python path for LLM gateway
 ENV PYTHONPATH="/app/../_shared:${PYTHONPATH}"
 
+RUN useradd --create-home appuser
+USER appuser
+
 CMD ["python", "-m", "bot.bot"]
